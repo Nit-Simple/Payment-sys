@@ -18,12 +18,14 @@ type Server struct {
 	httpServer *http.Server
 	db         *pgxpool.Pool
 	config     *config.Config
+	logger     *slog.Logger
 }
 
-func NewServer(cfg *config.Config, db *pgxpool.Pool) *Server {
+func NewServer(cfg *config.Config, db *pgxpool.Pool, log *slog.Logger) *Server {
 	s := &Server{
 		db:     db,
 		config: cfg,
+		logger: log,
 	}
 
 	s.httpServer = &http.Server{
@@ -42,7 +44,7 @@ func (s *Server) Start() error {
 	errCh := make(chan error, 1)
 
 	go func() {
-		slog.Info("server starting", "addr", s.config.Addr())
+		s.logger.Info("server starting", "addr", s.config.Addr())
 		if err := s.httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
@@ -55,7 +57,7 @@ func (s *Server) Start() error {
 	case err := <-errCh:
 		return fmt.Errorf("server error: %w", err)
 	case sig := <-quit:
-		slog.Info("shutdown signal received", "signal", sig)
+		s.logger.Info("shutdown signal received", "signal", sig)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), s.config.ShutdownTimeout)
@@ -67,6 +69,6 @@ func (s *Server) Start() error {
 
 	s.db.Close()
 
-	slog.Info("server shutdown complete")
+	s.logger.Info("server shutdown complete")
 	return nil
 }

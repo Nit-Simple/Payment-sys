@@ -3,10 +3,12 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"payments-engine/internal/config"
 	"payments-engine/internal/handler"
 	"payments-engine/internal/repository"
+	"payments-engine/pkg/logger"
 )
 
 func main() {
@@ -15,15 +17,19 @@ func main() {
 		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
 		os.Exit(1)
 	}
+
+	log := logger.New(cfg.Environment)
+	slog.SetDefault(log)
+
 	db, err := repository.Connect(context.Background(), cfg)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
+		log.Error("failed to connect to database", "err", err)
 		os.Exit(1)
 	}
 
-	server := handler.NewServer(cfg, db)
+	server := handler.NewServer(cfg, db, log)
 	if err := server.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "server error: %v\n", err)
+		log.Error("server error", "err", err)
 		os.Exit(1)
 	}
 }
