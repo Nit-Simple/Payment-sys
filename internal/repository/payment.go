@@ -95,7 +95,7 @@ func (r *PaymentRepository) List(ctx context.Context, customerID string, cursor 
 			card_last_four, card_brand, card_fingerprint, encrypted_card_data,
 			upi_id,
 			account_number, ifsc_code, account_holder_name,
-			email, ip_address, metadata,
+			email, ip_address::text, metadata,
 			created_at, updated_at
 		FROM payments
 		WHERE customer_id = $1

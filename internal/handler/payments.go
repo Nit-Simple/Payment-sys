@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"payments-engine/internal/domain"
 	"payments-engine/internal/service"
+	"strconv"
 )
 
 func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
@@ -102,7 +103,50 @@ func toCreatePaymentResponse(p *domain.Payment) CreatePaymentResponse {
 		CreatedAt:         p.CreatedAt,
 	}
 }
-func (s *Server) handleListPayments(w http.ResponseWriter, r *http.Request) {}
+func (s *Server) handleListPayments(w http.ResponseWriter, r *http.Request) {
+	customerID := r.URL.Query().Get("customer_id")
+	if customerID == "" {
+		s.respondError(w, r, http.StatusBadRequest, "customer_id is required", "invalid_request")
+		return
+	}
+
+	cursor := r.URL.Query().Get("cursor")
+
+	limit := 20
+	if l := r.URL.Query().Get("limit"); l != "" {
+		parsed, err := strconv.Atoi(l)
+		if err != nil || parsed <= 0 {
+			s.respondError(w, r, http.StatusBadRequest, "invalid limit", "invalid_request")
+			return
+		}
+		limit = parsed
+	}
+
+	payments, err := s.paymentService.List(r.Context(), customerID, cursor, limit)
+	if err != nil {
+		s.handleError(w, r, err)
+		return
+	}
+
+	// build next cursor from last item
+	var nextCursor string
+	if len(payments) == limit {
+		nextCursor = payments[len(payments)-1].ID
+	}
+
+	s.respond(w, r, http.StatusOK, ListPaymentsResponse{
+		Data:       toListPaymentResponses(payments),
+		NextCursor: nextCursor,
+	})
+}
+
+func toListPaymentResponses(payments []*domain.Payment) []CreatePaymentResponse {
+	result := make([]CreatePaymentResponse, len(payments))
+	for i, p := range payments {
+		result[i] = toCreatePaymentResponse(p)
+	}
+	return result
+}
 func (s *Server) handleGetPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {

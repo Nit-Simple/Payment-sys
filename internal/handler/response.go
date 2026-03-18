@@ -30,3 +30,7 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 	Code  string `json:"code,omitempty"`
 }
+type ListPaymentsResponse struct {
+	Data       []CreatePaymentResponse `json:"data"`
+	NextCursor string                  `json:"next_cursor,omitempty"`
+}

@@ -182,3 +182,15 @@ func (s *PaymentService) GetByID(ctx context.Context, id string) (*domain.Paymen
 	}
 	return payment, nil
 }
+func (s *PaymentService) List(ctx context.Context, customerID string, cursor string, limit int) ([]*domain.Payment, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	payments, err := s.repo.List(ctx, customerID, cursor, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list payments: %w", err)
+	}
+
+	return payments, nil
+}
