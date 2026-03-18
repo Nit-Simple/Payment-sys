@@ -175,3 +175,10 @@ func detectCardBrand(cardNumber string) string {
 		return "unknown"
 	}
 }
+func (s *PaymentService) GetByID(ctx context.Context, id string) (*domain.Payment, error) {
+	payment, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get payment: %w", err)
+	}
+	return payment, nil
+}

@@ -56,15 +56,15 @@ func (r *PaymentRepository) Insert(ctx context.Context, p *domain.Payment) error
 
 func (r *PaymentRepository) GetByID(ctx context.Context, id string) (*domain.Payment, error) {
 	query := `
-		SELECT
-			id, customer_id, amount, currency, status, method,
-			card_last_four, card_brand, card_fingerprint, encrypted_card_data,
-			upi_id,
-			account_number, ifsc_code, account_holder_name,
-			email, ip_address, metadata,
-			created_at, updated_at
-		FROM payments
-		WHERE id = $1`
+    SELECT
+        id, customer_id, amount, currency, status, method,
+        card_last_four, card_brand, card_fingerprint, encrypted_card_data,
+        upi_id,
+        account_number, ifsc_code, account_holder_name,
+        email, ip_address::text, metadata,
+        created_at, updated_at
+    FROM payments
+    WHERE id = $1`
 
 	p := &domain.Payment{}
 
