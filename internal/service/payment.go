@@ -245,3 +245,20 @@ func (s *PaymentService) Cancel(ctx context.Context, id string) (*domain.Payment
 	payment.Status = domain.StatusCancelled
 	return payment, nil
 }
+func (s *PaymentService) Refund(ctx context.Context, id string) (*domain.Payment, error) {
+	payment, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("refund payment: %w", err)
+	}
+
+	if !payment.CanTransitionTo(domain.StatusRefunded) {
+		return nil, domain.ErrInvalidStateTransition
+	}
+
+	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusRefunded); err != nil {
+		return nil, fmt.Errorf("refund payment: %w", err)
+	}
+
+	payment.Status = domain.StatusRefunded
+	return payment, nil
+}
