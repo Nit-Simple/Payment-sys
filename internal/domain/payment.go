@@ -72,3 +72,16 @@ type IdempotencyKey struct {
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
 }
+
+func (p *Payment) CanTransitionTo(next PaymentStatus) bool {
+	switch p.Status {
+	case StatusInitiated:
+		return next == StatusProcessing || next == StatusCancelled
+	case StatusProcessing:
+		return next == StatusSucceeded || next == StatusFailed || next == StatusCancelled
+	case StatusSucceeded:
+		return next == StatusRefunded
+	default:
+		return false
+	}
+}

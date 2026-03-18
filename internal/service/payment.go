@@ -194,3 +194,20 @@ func (s *PaymentService) List(ctx context.Context, customerID string, cursor str
 
 	return payments, nil
 }
+func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Payment, error) {
+	payment, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("confirm payment: %w", err)
+	}
+
+	if !payment.CanTransitionTo(domain.StatusProcessing) {
+		return nil, domain.ErrInvalidStateTransition
+	}
+
+	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusProcessing); err != nil {
+		return nil, fmt.Errorf("confirm payment: %w", err)
+	}
+
+	payment.Status = domain.StatusProcessing
+	return payment, nil
+}
