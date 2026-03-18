@@ -9,4 +9,5 @@ var (
 	ErrInvalidAmount           = errors.New("invalid amount")
 	ErrCardExpired             = errors.New("card expired")
 	ErrInvalidUPIID            = errors.New("invalid upi id")
+	ErrValidation              = errors.New("validation failed")
 )

@@ -85,7 +85,7 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 	case domain.MethodCard:
 		errs := validator.ValidateCard(input.CardNumber, input.ExpiryMonth, input.ExpiryYear, input.CVV, input.CardholderName)
 		if errs.HasErrors() {
-			return nil, domain.ErrCardExpired
+			return nil, domain.ErrValidation
 		}
 
 		encrypted, err := s.encryptCardData(input.CardNumber, input.CVV, input.CardholderName)

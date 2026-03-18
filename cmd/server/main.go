@@ -8,6 +8,7 @@ import (
 	"payments-engine/internal/config"
 	"payments-engine/internal/handler"
 	"payments-engine/internal/repository"
+	"payments-engine/internal/service"
 	"payments-engine/pkg/logger"
 )
 
@@ -26,8 +27,10 @@ func main() {
 		log.Error("failed to connect to database", "err", err)
 		os.Exit(1)
 	}
+	paymentRepo := repository.NewPaymentRepository(db)
+	paymentService := service.NewPaymentService(paymentRepo, cfg.EncryptionKey)
 
-	server := handler.NewServer(cfg, db, log)
+	server := handler.NewServer(cfg, db, log, paymentService)
 	if err := server.Start(); err != nil {
 		log.Error("server error", "err", err)
 		os.Exit(1)

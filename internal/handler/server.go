@@ -9,23 +9,26 @@ import (
 	"os"
 	"os/signal"
 	"payments-engine/internal/config"
+	"payments-engine/internal/service"
 	"syscall"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Server struct {
-	httpServer *http.Server
-	db         *pgxpool.Pool
-	config     *config.Config
-	logger     *slog.Logger
+	httpServer     *http.Server
+	db             *pgxpool.Pool
+	config         *config.Config
+	logger         *slog.Logger
+	paymentService *service.PaymentService
 }
 
-func NewServer(cfg *config.Config, db *pgxpool.Pool, log *slog.Logger) *Server {
+func NewServer(cfg *config.Config, db *pgxpool.Pool, log *slog.Logger, svc *service.PaymentService) *Server {
 	s := &Server{
-		db:     db,
-		config: cfg,
-		logger: log,
+		db:             db,
+		config:         cfg,
+		logger:         log,
+		paymentService: svc,
 	}
 
 	s.httpServer = &http.Server{
