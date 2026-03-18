@@ -192,5 +192,19 @@ func (s *Server) handleCapturePayment(w http.ResponseWriter, r *http.Request) {
 
 	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
 }
-func (s *Server) handleCancelPayment(w http.ResponseWriter, r *http.Request) {}
+func (s *Server) handleCancelPayment(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		s.respondError(w, r, http.StatusBadRequest, "missing payment id", "invalid_request")
+		return
+	}
+
+	payment, err := s.paymentService.Cancel(r.Context(), id)
+	if err != nil {
+		s.handleError(w, r, err)
+		return
+	}
+
+	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+}
 func (s *Server) handleRefundPayment(w http.ResponseWriter, r *http.Request) {}
