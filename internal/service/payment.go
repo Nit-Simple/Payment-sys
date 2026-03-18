@@ -211,3 +211,20 @@ func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Paymen
 	payment.Status = domain.StatusProcessing
 	return payment, nil
 }
+func (s *PaymentService) Capture(ctx context.Context, id string) (*domain.Payment, error) {
+	payment, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("capture payment: %w", err)
+	}
+
+	if !payment.CanTransitionTo(domain.StatusSucceeded) {
+		return nil, domain.ErrInvalidStateTransition
+	}
+
+	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusSucceeded); err != nil {
+		return nil, fmt.Errorf("capture payment: %w", err)
+	}
+
+	payment.Status = domain.StatusSucceeded
+	return payment, nil
+}
