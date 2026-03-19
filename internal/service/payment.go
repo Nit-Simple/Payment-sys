@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 
 	"payments-engine/internal/domain"
+	"payments-engine/internal/metrics"
 	"payments-engine/pkg/validator"
 )
 
@@ -118,9 +119,18 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 	}
 
 	if err := s.repo.Insert(ctx, payment); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
 		return nil, fmt.Errorf("create payment: %w", err)
 	}
 
+	metrics.PaymentsTotal.WithLabelValues(
+		string(payment.Method),
+		string(payment.Status),
+	).Inc()
+
+	metrics.PaymentAmount.WithLabelValues(
+		string(payment.Method),
+	).Observe(float64(payment.Amount))
 	return payment, nil
 }
 

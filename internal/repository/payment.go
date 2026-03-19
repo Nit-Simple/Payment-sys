@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"payments-engine/internal/domain"
+	"payments-engine/internal/metrics"
 )
 
 type PaymentRepository struct {
@@ -138,19 +139,25 @@ func (r *PaymentRepository) List(ctx context.Context, customerID string, cursor 
 
 func (r *PaymentRepository) UpdateStatus(ctx context.Context, id string, from, to domain.PaymentStatus) error {
 	query := `
-		UPDATE payments
-		SET status = $1
-		WHERE id = $2
-		AND status = $3`
+        UPDATE payments
+        SET status = $1
+        WHERE id = $2
+        AND status = $3`
 
 	result, err := r.db.Exec(ctx, query, to, id, from)
 	if err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_update_status").Inc()
 		return fmt.Errorf("update payment status: %w", err)
 	}
 
 	if result.RowsAffected() == 0 {
 		return domain.ErrInvalidStateTransition
 	}
+
+	metrics.PaymentStateTransitions.WithLabelValues(
+		string(from),
+		string(to),
+	).Inc()
 
 	return nil
 }

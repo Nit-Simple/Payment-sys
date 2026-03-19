@@ -1,9 +1,12 @@
 package middleware
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"payments-engine/internal/metrics"
 )
 
 type responseWriter struct {
@@ -33,14 +36,30 @@ func RequestLogger(logger *slog.Logger) func(http.Handler) http.Handler {
 				status:         http.StatusOK,
 			}
 
+			metrics.HTTPRequestsInFlight.Inc()
+			defer metrics.HTTPRequestsInFlight.Dec()
+
 			next.ServeHTTP(rw, r)
+
+			duration := time.Since(start)
+
+			metrics.HTTPRequestsTotal.WithLabelValues(
+				r.Method,
+				r.URL.Path,
+				fmt.Sprintf("%d", rw.status),
+			).Inc()
+
+			metrics.HTTPRequestDuration.WithLabelValues(
+				r.Method,
+				r.URL.Path,
+			).Observe(duration.Seconds())
 
 			logger.InfoContext(r.Context(), "request",
 				"method", r.Method,
 				"path", r.URL.Path,
 				"status", rw.status,
 				"bytes", rw.bytes,
-				"duration_ms", time.Since(start).Milliseconds(),
+				"duration_ms", duration.Milliseconds(),
 				"request_id", GetRequestID(r.Context()),
 				"ip", r.RemoteAddr,
 			)

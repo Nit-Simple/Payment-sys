@@ -7,9 +7,11 @@ import (
 	"os"
 	"payments-engine/internal/config"
 	"payments-engine/internal/handler"
+	"payments-engine/internal/metrics"
 	"payments-engine/internal/repository"
 	"payments-engine/internal/service"
 	"payments-engine/pkg/logger"
+	"time"
 )
 
 func main() {
@@ -28,6 +30,15 @@ func main() {
 		os.Exit(1)
 	}
 	paymentRepo := repository.NewPaymentRepository(db)
+	go func() {
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			stats := db.Stat()
+			metrics.DBConnectionsInUse.Set(float64(stats.AcquiredConns()))
+			metrics.DBConnectionsIdle.Set(float64(stats.IdleConns()))
+		}
+	}()
 	paymentService := service.NewPaymentService(paymentRepo, cfg.EncryptionKey)
 
 	server := handler.NewServer(cfg, db, log, paymentService)
