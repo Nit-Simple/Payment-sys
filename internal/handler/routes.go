@@ -1,6 +1,10 @@
 package handler
 
-import "net/http"
+import (
+	"net/http"
+
+	"payments-engine/internal/handler/middleware"
+)
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
@@ -16,5 +20,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /v1/payments/{id}/cancel", s.handleCancelPayment)
 	mux.HandleFunc("POST /v1/payments/{id}/refund", s.handleRefundPayment)
 
-	return mux
+	return s.applyMiddleware(mux)
+}
+
+func (s *Server) applyMiddleware(h http.Handler) http.Handler {
+	h = middleware.RequestLogger(s.logger)(h)
+	h = middleware.RequestID(h)
+	return h
 }
