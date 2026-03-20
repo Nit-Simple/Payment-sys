@@ -29,6 +29,8 @@ func main() {
 		log.Error("failed to connect to database", "err", err)
 		os.Exit(1)
 	}
+	idempotencyRepo := repository.NewIdempotencyRepository(db)
+	idempSvc := service.NewIdempotencyService(idempotencyRepo)
 	paymentRepo := repository.NewPaymentRepository(db)
 	go func() {
 		ticker := time.NewTicker(15 * time.Second)
@@ -41,7 +43,7 @@ func main() {
 	}()
 	paymentService := service.NewPaymentService(paymentRepo, cfg.EncryptionKey)
 
-	server := handler.NewServer(cfg, db, log, paymentService)
+	server := handler.NewServer(cfg, db, log, paymentService, idempSvc)
 	if err := server.Start(); err != nil {
 		log.Error("server error", "err", err)
 		os.Exit(1)

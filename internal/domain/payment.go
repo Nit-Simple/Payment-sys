@@ -67,6 +67,7 @@ type IdempotencyKey struct {
 	Key            string
 	PaymentID      string
 	RequestHash    string
+	Status         string
 	ResponseStatus int
 	ResponseBody   []byte
 	CreatedAt      time.Time

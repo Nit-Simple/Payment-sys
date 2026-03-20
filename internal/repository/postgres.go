@@ -29,3 +29,22 @@ func Connect(ctx context.Context, cfg *config.Config) (*pgxpool.Pool, error) {
 
 	return pool, nil
 }
+func scanNullableInt(i *int) any {
+	return pgScanInt{i}
+}
+
+type pgScanInt struct{ v *int }
+
+func (s pgScanInt) Scan(src any) error {
+	if src == nil {
+		*s.v = 0
+		return nil
+	}
+	switch v := src.(type) {
+	case int64:
+		*s.v = int(v)
+	case int32:
+		*s.v = int(v)
+	}
+	return nil
+}

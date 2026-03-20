@@ -16,19 +16,21 @@ import (
 )
 
 type Server struct {
-	httpServer     *http.Server
-	db             *pgxpool.Pool
-	config         *config.Config
-	logger         *slog.Logger
-	paymentService *service.PaymentService
+	httpServer         *http.Server
+	db                 *pgxpool.Pool
+	config             *config.Config
+	logger             *slog.Logger
+	paymentService     *service.PaymentService
+	idempotencyService *service.IdempotencyService
 }
 
-func NewServer(cfg *config.Config, db *pgxpool.Pool, log *slog.Logger, svc *service.PaymentService) *Server {
+func NewServer(cfg *config.Config, db *pgxpool.Pool, log *slog.Logger, svc *service.PaymentService, idempSvc *service.IdempotencyService) *Server {
 	s := &Server{
-		db:             db,
-		config:         cfg,
-		logger:         log,
-		paymentService: svc,
+		db:                 db,
+		config:             cfg,
+		logger:             log,
+		paymentService:     svc,
+		idempotencyService: idempSvc,
 	}
 
 	s.httpServer = &http.Server{

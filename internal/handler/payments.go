@@ -1,15 +1,67 @@
 package handler
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"payments-engine/internal/domain"
+	"payments-engine/internal/metrics"
 	"payments-engine/internal/service"
 	"strconv"
 )
 
 func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
+	// extract and validate idempotency key
+	idempKey := r.Header.Get("Idempotency-Key")
+	if idempKey == "" {
+		s.respondError(w, r, http.StatusBadRequest, "Idempotency-Key header is required", "missing_idempotency_key")
+		return
+	}
+
+	// read body once — needed for both hashing and decoding
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		s.respondError(w, r, http.StatusBadRequest, "failed to read request body", "invalid_request")
+		return
+	}
+	defer r.Body.Close()
+
+	// check idempotency
+	result, err := s.idempotencyService.Check(r.Context(), idempKey, body)
+	if err != nil {
+		s.handleError(w, r, err)
+		return
+	}
+
+	if result.Exists {
+		switch {
+		case result.RequestHashMismatch:
+			s.respondError(w, r, http.StatusUnprocessableEntity, "idempotency key reused with different request body", "idempotency_key_mismatch")
+			return
+		case result.Status == "pending":
+			s.respondError(w, r, http.StatusConflict, "request is still processing", "request_in_flight")
+			return
+		case result.Status == "completed", result.Status == "failed":
+			metrics.IdempotencyHits.Inc()
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Idempotency-Replay", "true")
+			w.WriteHeader(result.StoredResponseStatus)
+			w.Write(result.StoredResponseBody)
+			return
+		}
+	}
+
+	metrics.IdempotencyMisses.Inc()
+
+	// restore body for decoding since we already read it
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
 	var req CreatePaymentRequest
 	if err := s.decode(w, r, &req); err != nil {
+		s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, ErrorResponse{
+			Error: "invalid request body",
+			Code:  "invalid_request",
+		})
 		return
 	}
 
@@ -17,37 +69,50 @@ func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "card":
 		if req.UPI != nil || req.Bank != nil {
-			s.respondError(w, r, http.StatusBadRequest, "upi and bank fields not allowed for card payment", "invalid_request")
+			errResp := ErrorResponse{Error: "upi and bank fields not allowed for card payment", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 		if req.Card == nil {
-			s.respondError(w, r, http.StatusBadRequest, "card details required", "invalid_request")
+			errResp := ErrorResponse{Error: "card details required", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 	case "upi":
 		if req.Card != nil || req.Bank != nil {
-			s.respondError(w, r, http.StatusBadRequest, "card and bank fields not allowed for upi payment", "invalid_request")
+			errResp := ErrorResponse{Error: "card and bank fields not allowed for upi payment", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 		if req.UPI == nil {
-			s.respondError(w, r, http.StatusBadRequest, "upi details required", "invalid_request")
+			errResp := ErrorResponse{Error: "upi details required", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 	case "bank":
 		if req.Card != nil || req.UPI != nil {
-			s.respondError(w, r, http.StatusBadRequest, "card and upi fields not allowed for bank payment", "invalid_request")
+			errResp := ErrorResponse{Error: "card and upi fields not allowed for bank payment", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 		if req.Bank == nil {
-			s.respondError(w, r, http.StatusBadRequest, "bank details required", "invalid_request")
+			errResp := ErrorResponse{Error: "bank details required", Code: "invalid_request"}
+			s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+			s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 			return
 		}
 	default:
-		s.respondError(w, r, http.StatusBadRequest, "invalid payment method", "invalid_request")
+		errResp := ErrorResponse{Error: "invalid payment method", Code: "invalid_request"}
+		s.idempotencyService.Fail(r.Context(), idempKey, http.StatusBadRequest, errResp)
+		s.respondError(w, r, http.StatusBadRequest, errResp.Error, errResp.Code)
 		return
 	}
 
-	// map request to service input
 	input := service.CreatePaymentInput{
 		Amount:     req.Amount,
 		Currency:   req.Currency,
@@ -65,11 +130,9 @@ func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
 		input.CVV = req.Card.CVV
 		input.CardholderName = req.Card.CardholderName
 	}
-
 	if req.UPI != nil {
 		input.UPIID = req.UPI.UPIID
 	}
-
 	if req.Bank != nil {
 		input.AccountNumber = req.Bank.AccountNumber
 		input.IFSCCode = req.Bank.IFSCCode
@@ -78,11 +141,19 @@ func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
 
 	payment, err := s.paymentService.Create(r.Context(), input)
 	if err != nil {
+		errResp := ErrorResponse{Error: err.Error(), Code: "payment_failed"}
+		s.idempotencyService.Fail(r.Context(), idempKey, http.StatusUnprocessableEntity, errResp)
 		s.handleError(w, r, err)
 		return
 	}
 
-	s.respond(w, r, http.StatusCreated, toCreatePaymentResponse(payment))
+	resp := toCreatePaymentResponse(payment)
+
+	if err := s.idempotencyService.Complete(r.Context(), idempKey, payment.ID, http.StatusCreated, resp); err != nil {
+		s.logger.ErrorContext(r.Context(), "failed to complete idempotency key", "err", err)
+	}
+
+	s.respond(w, r, http.StatusCreated, resp)
 }
 
 func toCreatePaymentResponse(p *domain.Payment) CreatePaymentResponse {
