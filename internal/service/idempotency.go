@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"payments-engine/internal/domain"
+	"payments-engine/internal/metrics"
 )
 
 type IdempotencyRepository interface {
@@ -86,6 +87,7 @@ func (s *IdempotencyService) Complete(ctx context.Context, key string, paymentID
 	}
 
 	if err := s.repo.UpdateKey(ctx, key, paymentID, "completed", responseStatus, body); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("idempotency_complete").Inc()
 		return fmt.Errorf("idempotency complete: %w", err)
 	}
 
@@ -99,6 +101,7 @@ func (s *IdempotencyService) Fail(ctx context.Context, key string, responseStatu
 	}
 
 	if err := s.repo.UpdateKey(ctx, key, "", "failed", responseStatus, body); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("idempotency_fail").Inc()
 		return fmt.Errorf("idempotency fail: %w", err)
 	}
 

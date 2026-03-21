@@ -18,6 +18,13 @@ import (
 	"payments-engine/pkg/validator"
 )
 
+type PaymentRepository interface {
+	Insert(ctx context.Context, payment *domain.Payment) error
+	GetByID(ctx context.Context, id string) (*domain.Payment, error)
+	List(ctx context.Context, customerID string, cursor string, limit int) ([]*domain.Payment, error)
+	UpdateStatus(ctx context.Context, id string, from, to domain.PaymentStatus) error
+	InsertEvent(ctx context.Context, event *domain.PaymentEvent) error
+}
 type PaymentService struct {
 	repo          PaymentRepository
 	encryptionKey []byte
@@ -59,6 +66,7 @@ type CreatePaymentInput struct {
 func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (*domain.Payment, error) {
 	// validate amount
 	if err := validator.ValidateAmount(input.Amount); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("invalid_amount").Inc()
 		return nil, domain.ErrInvalidAmount
 	}
 
@@ -86,6 +94,7 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 	case domain.MethodCard:
 		errs := validator.ValidateCard(input.CardNumber, input.ExpiryMonth, input.ExpiryYear, input.CVV, input.CardholderName)
 		if errs.HasErrors() {
+			metrics.ErrorsTotal.WithLabelValues("invalid_card").Inc()
 			return nil, domain.ErrValidation
 		}
 
@@ -101,6 +110,7 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 
 	case domain.MethodUPI:
 		if err := validator.ValidateUPI(input.UPIID); err != nil {
+			metrics.ErrorsTotal.WithLabelValues("invalid_upi").Inc()
 			return nil, domain.ErrInvalidUPIID
 		}
 		payment.UPIID = input.UPIID
@@ -108,6 +118,7 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 	case domain.MethodBank:
 		errs := validator.ValidateBankDetails(input.AccountNumber, input.IFSCCode, input.AccountHolderName)
 		if errs.HasErrors() {
+			metrics.ErrorsTotal.WithLabelValues("invalid_bank").Inc()
 			return nil, fmt.Errorf("create payment: %w", errs)
 		}
 		payment.AccountNumber = input.AccountNumber
@@ -121,6 +132,12 @@ func (s *PaymentService) Create(ctx context.Context, input CreatePaymentInput) (
 	if err := s.repo.Insert(ctx, payment); err != nil {
 		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
 		return nil, fmt.Errorf("create payment: %w", err)
+	}
+
+	// record initial event — no from_status for first event
+	if err := s.createEvent(ctx, payment.ID, "", domain.StatusInitiated, "payment created"); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert_event").Inc()
+		return nil, fmt.Errorf("create payment event: %w", err)
 	}
 
 	metrics.PaymentsTotal.WithLabelValues(
@@ -215,6 +232,7 @@ func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Paymen
 	}
 
 	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusProcessing); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_update_status").Inc()
 		return nil, fmt.Errorf("confirm payment: %w", err)
 	}
 
@@ -271,4 +289,21 @@ func (s *PaymentService) Refund(ctx context.Context, id string) (*domain.Payment
 
 	payment.Status = domain.StatusRefunded
 	return payment, nil
+}
+func (s *PaymentService) createEvent(ctx context.Context, paymentID string, from, to domain.PaymentStatus, reason string) error {
+	id, err := uuid.NewV7()
+	if err != nil {
+		return fmt.Errorf("generate event id: %w", err)
+	}
+
+	event := &domain.PaymentEvent{
+		ID:         id.String(),
+		PaymentID:  paymentID,
+		FromStatus: from,
+		ToStatus:   to,
+		Reason:     reason,
+		CreatedAt:  time.Now().UTC(),
+	}
+
+	return s.repo.InsertEvent(ctx, event)
 }

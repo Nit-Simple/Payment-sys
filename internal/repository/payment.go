@@ -162,6 +162,28 @@ func (r *PaymentRepository) UpdateStatus(ctx context.Context, id string, from, t
 	return nil
 }
 
+func (r *PaymentRepository) InsertEvent(ctx context.Context, e *domain.PaymentEvent) error {
+	query := `INSERT INTO payment_events (
+            id, payment_id, from_status, to_status, reason, metadata, created_at
+        ) VALUES (
+            $1, $2, $3, $4, $5, $6, $7
+        )`
+	_, err := r.db.Exec(ctx, query,
+		e.ID,
+		e.PaymentID,
+		nullableString(string(e.FromStatus)),
+		string(e.ToStatus),
+		nullableString(e.Reason),
+		e.Metadata,
+		e.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert payment event: %w", err)
+	}
+
+	return nil
+}
+
 // nullable helpers — domain uses plain Go types, postgres uses nullable types
 // these bridge the gap at the repository boundary
 
