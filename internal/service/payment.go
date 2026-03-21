@@ -222,6 +222,7 @@ func (s *PaymentService) List(ctx context.Context, customerID string, cursor str
 	return payments, nil
 }
 func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Payment, error) {
+
 	payment, err := s.repo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("confirm payment: %w", err)
@@ -235,7 +236,23 @@ func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Paymen
 		metrics.ErrorsTotal.WithLabelValues("db_update_status").Inc()
 		return nil, fmt.Errorf("confirm payment: %w", err)
 	}
+	eventId, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("confirm payment: generate event id: %w", err)
+	}
 
+	PaymentEvent := &domain.PaymentEvent{
+		ID:         eventId.String(),
+		PaymentID:  payment.ID,
+		FromStatus: payment.Status,
+		ToStatus:   domain.StatusProcessing,
+		Reason:     "payment confirmed",
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
+		return nil, fmt.Errorf("confirm payment: %w", err)
+	}
 	payment.Status = domain.StatusProcessing
 	return payment, nil
 }
@@ -250,6 +267,22 @@ func (s *PaymentService) Capture(ctx context.Context, id string) (*domain.Paymen
 	}
 
 	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusSucceeded); err != nil {
+		return nil, fmt.Errorf("capture payment: %w", err)
+	}
+	eventId, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("capture payment: generate event id: %w", err)
+	}
+	PaymentEvent := &domain.PaymentEvent{
+		ID:         eventId.String(),
+		PaymentID:  payment.ID,
+		FromStatus: payment.Status,
+		ToStatus:   domain.StatusSucceeded,
+		Reason:     "payment captured",
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
 		return nil, fmt.Errorf("capture payment: %w", err)
 	}
 
@@ -269,6 +302,22 @@ func (s *PaymentService) Cancel(ctx context.Context, id string) (*domain.Payment
 	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusCancelled); err != nil {
 		return nil, fmt.Errorf("cancel payment: %w", err)
 	}
+	eventId, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("cancel payment: generate event id: %w", err)
+	}
+	PaymentEvent := &domain.PaymentEvent{
+		ID:         eventId.String(),
+		PaymentID:  payment.ID,
+		FromStatus: payment.Status,
+		ToStatus:   domain.StatusCancelled,
+		Reason:     "payment cancelled",
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
+		return nil, fmt.Errorf("cancel payment: %w", err)
+	}
 
 	payment.Status = domain.StatusCancelled
 	return payment, nil
@@ -284,6 +333,22 @@ func (s *PaymentService) Refund(ctx context.Context, id string) (*domain.Payment
 	}
 
 	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusRefunded); err != nil {
+		return nil, fmt.Errorf("refund payment: %w", err)
+	}
+	eventId, err := uuid.NewV7()
+	if err != nil {
+		return nil, fmt.Errorf("refund payment: generate event id: %w", err)
+	}
+	PaymentEvent := &domain.PaymentEvent{
+		ID:         eventId.String(),
+		PaymentID:  payment.ID,
+		FromStatus: payment.Status,
+		ToStatus:   domain.StatusRefunded,
+		Reason:     "payment refunded",
+		CreatedAt:  time.Now().UTC(),
+	}
+	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
+		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
 		return nil, fmt.Errorf("refund payment: %w", err)
 	}
 
