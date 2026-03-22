@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"payments-engine/internal/domain"
@@ -13,11 +14,23 @@ import (
 )
 
 type PaymentRepository struct {
-	db *pgxpool.Pool
+	db   querier
+	pool *pgxpool.Pool
 }
 
+type querier interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
+// repository/payment.go — import service package
+
+// implements PaymentRepository — all methods use r.tx instead of r.db
+// WithTransaction on txRepo just calls fn(r) — already in a transaction
+
 func NewPaymentRepository(db *pgxpool.Pool) *PaymentRepository {
-	return &PaymentRepository{db: db}
+	return &PaymentRepository{db: db, pool: db}
 }
 
 func (r *PaymentRepository) Insert(ctx context.Context, p *domain.Payment) error {
@@ -236,4 +249,53 @@ func (s pgScanBytes) Scan(src any) error {
 		*s.v = v
 	}
 	return nil
+}
+
+// repository/payment.go
+
+func (r *PaymentRepository) GetByIDForUpdate(ctx context.Context, id string) (*domain.Payment, error) {
+	query := `
+        SELECT id, customer_id, amount, currency, status, method,
+               card_last_four, card_brand, card_fingerprint, encrypted_card_data,
+               upi_id, account_number, ifsc_code, account_holder_name,
+               email, ip_address::text, metadata, created_at, updated_at
+        FROM payments
+        WHERE id = $1
+        FOR UPDATE` // acquires row-level lock
+
+	p := &domain.Payment{}
+
+	err := r.db.QueryRow(ctx, query, id).Scan(
+		&p.ID, &p.CustomerID, &p.Amount, &p.Currency, &p.Status, &p.Method,
+		scanNullableString(&p.CardLastFour), scanNullableString(&p.CardBrand),
+		scanNullableString(&p.CardFingerprint), scanNullableBytes(&p.EncryptedCardData),
+		scanNullableString(&p.UPIID),
+		scanNullableString(&p.AccountNumber), scanNullableString(&p.IFSCCode),
+		scanNullableString(&p.AccountHolderName),
+		&p.Email, &p.IPAddress, &p.Metadata,
+		&p.CreatedAt, &p.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("get payment: %w", err)
+	}
+
+	return p, nil
+}
+
+func (r *PaymentRepository) WithTransaction(ctx context.Context, fn func(domain.PaymentRepository) error) error {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+
+	// create a tx-scoped repository that wraps pgx.Tx
+	txRepo := &PaymentRepository{db: tx, pool: r.pool}
+	if err := fn(txRepo); err != nil {
+		_ = tx.Rollback(ctx)
+		return err
+	}
+	return tx.Commit(ctx)
 }

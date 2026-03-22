@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -13,7 +14,7 @@ import (
 )
 
 type IdempotencyRepository interface {
-	InsertKey(ctx context.Context, key *domain.IdempotencyKey) (*domain.IdempotencyKey, bool, error)
+	InsertKey(ctx context.Context, key *domain.IdempotencyKey) (*domain.IdempotencyKey, error) // no bool
 	GetKey(ctx context.Context, key string) (*domain.IdempotencyKey, error)
 	UpdateKey(ctx context.Context, key string, paymentID string, status string, responseStatus int, responseBody []byte) error
 }
@@ -45,41 +46,45 @@ type IdempotencyResult struct {
 func (s *IdempotencyService) Check(ctx context.Context, key string, requestBody []byte) (*IdempotencyResult, error) {
 	requestHash := hashBody(requestBody)
 
-	existing, inserted, err := s.repo.InsertKey(ctx, &domain.IdempotencyKey{
+	existing, err := s.repo.InsertKey(ctx, &domain.IdempotencyKey{
 		Key:         key,
 		RequestHash: requestHash,
 		Status:      "pending",
 		CreatedAt:   time.Now().UTC(),
 		ExpiresAt:   time.Now().UTC().Add(24 * time.Hour),
 	})
-	if err != nil {
-		return nil, fmt.Errorf("idempotency check: %w", err)
+
+	// fresh insert — key is new, proceed with processing
+	if err == nil {
+		_ = existing // not needed, key is claimed
+		return &IdempotencyResult{Claimed: true}, nil
 	}
 
-	// fresh insert — we claimed this key
-	if inserted {
+	// conflict — key already exists
+	if errors.Is(err, domain.ErrIdempotencyKeyExists) {
+		existing, err := s.repo.GetKey(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("idempotency check: get existing key: %w", err)
+		}
+
+		if existing.RequestHash != requestHash {
+			return &IdempotencyResult{
+				Exists:              true,
+				RequestHashMismatch: true,
+			}, nil
+		}
+
 		return &IdempotencyResult{
-			Claimed: true,
+			Exists:               true,
+			Status:               existing.Status,
+			StoredResponseStatus: existing.ResponseStatus,
+			StoredResponseBody:   existing.ResponseBody,
 		}, nil
 	}
 
-	// key already existed — check request hash
-	if existing.RequestHash != requestHash {
-		return &IdempotencyResult{
-			Exists:              true,
-			RequestHashMismatch: true,
-		}, nil
-	}
-
-	// same key same body — return status
-	return &IdempotencyResult{
-		Exists:               true,
-		Status:               existing.Status,
-		StoredResponseStatus: existing.ResponseStatus,
-		StoredResponseBody:   existing.ResponseBody,
-	}, nil
+	// real error
+	return nil, fmt.Errorf("idempotency check: %w", err)
 }
-
 func (s *IdempotencyService) Complete(ctx context.Context, key string, paymentID string, responseStatus int, responseBody any) error {
 	body, err := json.Marshal(responseBody)
 	if err != nil {

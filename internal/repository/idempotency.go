@@ -19,20 +19,17 @@ func NewIdempotencyRepository(db *pgxpool.Pool) *IdempotencyRepository {
 	return &IdempotencyRepository{db: db}
 }
 
-func (r *IdempotencyRepository) InsertKey(ctx context.Context, key *domain.IdempotencyKey) (*domain.IdempotencyKey, bool, error) {
+func (r *IdempotencyRepository) InsertKey(ctx context.Context, key *domain.IdempotencyKey) (*domain.IdempotencyKey, error) {
 	query := `
     INSERT INTO idempotency_keys (
         key, request_hash, status, created_at, expires_at
     ) VALUES (
         $1, $2, 'pending', $3, $4
     )
-    ON CONFLICT (key) DO UPDATE
-    SET key = EXCLUDED.key
-    RETURNING key, payment_id, request_hash, status, response_status, response_body, created_at, expires_at,
-              (xmax = 0) AS inserted`
+    ON CONFLICT (key) DO NOTHING
+    RETURNING key, payment_id, request_hash, status, response_status, response_body, created_at, expires_at`
 
 	existing := &domain.IdempotencyKey{}
-	var inserted bool
 
 	err := r.db.QueryRow(ctx, query,
 		key.Key,
@@ -48,16 +45,15 @@ func (r *IdempotencyRepository) InsertKey(ctx context.Context, key *domain.Idemp
 		scanNullableBytes(&existing.ResponseBody),
 		&existing.CreatedAt,
 		&existing.ExpiresAt,
-		&inserted,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return nil, inserted, nil
+			return nil, domain.ErrIdempotencyKeyExists
 		}
-		return nil, inserted, fmt.Errorf("insert idempotency key: %w", err)
+		return nil, fmt.Errorf("insert idempotency key: %w", err)
 	}
 
-	return existing, inserted, nil
+	return existing, nil
 }
 
 func (r *IdempotencyRepository) GetKey(ctx context.Context, key string) (*domain.IdempotencyKey, error) {

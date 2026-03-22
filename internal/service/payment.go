@@ -18,19 +18,12 @@ import (
 	"payments-engine/pkg/validator"
 )
 
-type PaymentRepository interface {
-	Insert(ctx context.Context, payment *domain.Payment) error
-	GetByID(ctx context.Context, id string) (*domain.Payment, error)
-	List(ctx context.Context, customerID string, cursor string, limit int) ([]*domain.Payment, error)
-	UpdateStatus(ctx context.Context, id string, from, to domain.PaymentStatus) error
-	InsertEvent(ctx context.Context, event *domain.PaymentEvent) error
-}
 type PaymentService struct {
-	repo          PaymentRepository
+	repo          domain.PaymentRepository
 	encryptionKey []byte
 }
 
-func NewPaymentService(repo PaymentRepository, encryptionKey []byte) *PaymentService {
+func NewPaymentService(repo domain.PaymentRepository, encryptionKey []byte) *PaymentService {
 	return &PaymentService{
 		repo:          repo,
 		encryptionKey: encryptionKey,
@@ -221,140 +214,7 @@ func (s *PaymentService) List(ctx context.Context, customerID string, cursor str
 
 	return payments, nil
 }
-func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Payment, error) {
 
-	payment, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("confirm payment: %w", err)
-	}
-
-	if !payment.CanTransitionTo(domain.StatusProcessing) {
-		return nil, domain.ErrInvalidStateTransition
-	}
-
-	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusProcessing); err != nil {
-		metrics.ErrorsTotal.WithLabelValues("db_update_status").Inc()
-		return nil, fmt.Errorf("confirm payment: %w", err)
-	}
-	eventId, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("confirm payment: generate event id: %w", err)
-	}
-
-	PaymentEvent := &domain.PaymentEvent{
-		ID:         eventId.String(),
-		PaymentID:  payment.ID,
-		FromStatus: payment.Status,
-		ToStatus:   domain.StatusProcessing,
-		Reason:     "payment confirmed",
-		CreatedAt:  time.Now().UTC(),
-	}
-	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
-		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
-		return nil, fmt.Errorf("confirm payment: %w", err)
-	}
-	payment.Status = domain.StatusProcessing
-	return payment, nil
-}
-func (s *PaymentService) Capture(ctx context.Context, id string) (*domain.Payment, error) {
-	payment, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("capture payment: %w", err)
-	}
-
-	if !payment.CanTransitionTo(domain.StatusSucceeded) {
-		return nil, domain.ErrInvalidStateTransition
-	}
-
-	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusSucceeded); err != nil {
-		return nil, fmt.Errorf("capture payment: %w", err)
-	}
-	eventId, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("capture payment: generate event id: %w", err)
-	}
-	PaymentEvent := &domain.PaymentEvent{
-		ID:         eventId.String(),
-		PaymentID:  payment.ID,
-		FromStatus: payment.Status,
-		ToStatus:   domain.StatusSucceeded,
-		Reason:     "payment captured",
-		CreatedAt:  time.Now().UTC(),
-	}
-	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
-		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
-		return nil, fmt.Errorf("capture payment: %w", err)
-	}
-
-	payment.Status = domain.StatusSucceeded
-	return payment, nil
-}
-func (s *PaymentService) Cancel(ctx context.Context, id string) (*domain.Payment, error) {
-	payment, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("cancel payment: %w", err)
-	}
-
-	if !payment.CanTransitionTo(domain.StatusCancelled) {
-		return nil, domain.ErrInvalidStateTransition
-	}
-
-	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusCancelled); err != nil {
-		return nil, fmt.Errorf("cancel payment: %w", err)
-	}
-	eventId, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("cancel payment: generate event id: %w", err)
-	}
-	PaymentEvent := &domain.PaymentEvent{
-		ID:         eventId.String(),
-		PaymentID:  payment.ID,
-		FromStatus: payment.Status,
-		ToStatus:   domain.StatusCancelled,
-		Reason:     "payment cancelled",
-		CreatedAt:  time.Now().UTC(),
-	}
-	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
-		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
-		return nil, fmt.Errorf("cancel payment: %w", err)
-	}
-
-	payment.Status = domain.StatusCancelled
-	return payment, nil
-}
-func (s *PaymentService) Refund(ctx context.Context, id string) (*domain.Payment, error) {
-	payment, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("refund payment: %w", err)
-	}
-
-	if !payment.CanTransitionTo(domain.StatusRefunded) {
-		return nil, domain.ErrInvalidStateTransition
-	}
-
-	if err := s.repo.UpdateStatus(ctx, id, payment.Status, domain.StatusRefunded); err != nil {
-		return nil, fmt.Errorf("refund payment: %w", err)
-	}
-	eventId, err := uuid.NewV7()
-	if err != nil {
-		return nil, fmt.Errorf("refund payment: generate event id: %w", err)
-	}
-	PaymentEvent := &domain.PaymentEvent{
-		ID:         eventId.String(),
-		PaymentID:  payment.ID,
-		FromStatus: payment.Status,
-		ToStatus:   domain.StatusRefunded,
-		Reason:     "payment refunded",
-		CreatedAt:  time.Now().UTC(),
-	}
-	if err := s.repo.InsertEvent(ctx, PaymentEvent); err != nil {
-		metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
-		return nil, fmt.Errorf("refund payment: %w", err)
-	}
-
-	payment.Status = domain.StatusRefunded
-	return payment, nil
-}
 func (s *PaymentService) createEvent(ctx context.Context, paymentID string, from, to domain.PaymentStatus, reason string) error {
 	id, err := uuid.NewV7()
 	if err != nil {
@@ -371,4 +231,75 @@ func (s *PaymentService) createEvent(ctx context.Context, paymentID string, from
 	}
 
 	return s.repo.InsertEvent(ctx, event)
+}
+
+// service/payment.go
+
+func (s *PaymentService) transition(
+	ctx context.Context,
+	id string,
+	to domain.PaymentStatus,
+	reason string,
+) (*domain.Payment, error) {
+	var updated *domain.Payment
+
+	err := s.repo.WithTransaction(ctx, func(tx domain.PaymentRepository) error {
+		// SELECT FOR UPDATE — row locked until transaction commits
+		payment, err := tx.GetByIDForUpdate(ctx, id)
+		if err != nil {
+			return err
+		}
+
+		if !payment.CanTransitionTo(to) {
+			return domain.ErrInvalidStateTransition
+		}
+
+		if err := tx.UpdateStatus(ctx, id, payment.Status, to); err != nil {
+			return err
+		}
+
+		eventID, err := uuid.NewV7()
+		if err != nil {
+			return fmt.Errorf("generate event id: %w", err)
+		}
+
+		if err := tx.InsertEvent(ctx, &domain.PaymentEvent{
+			ID:         eventID.String(),
+			PaymentID:  id,
+			FromStatus: payment.Status,
+			ToStatus:   to,
+			Reason:     reason,
+			CreatedAt:  time.Now().UTC(),
+		}); err != nil {
+			metrics.ErrorsTotal.WithLabelValues("db_insert").Inc()
+			return err
+		}
+
+		payment.Status = to
+		updated = payment
+		return nil
+	})
+
+	if err != nil {
+		metrics.ErrorsTotal.WithLabelValues("transition_" + string(to)).Inc()
+		return nil, fmt.Errorf("%s payment: %w", reason, err)
+	}
+
+	return updated, nil
+}
+
+func (s *PaymentService) Confirm(ctx context.Context, id string) (*domain.Payment, error) {
+	return s.transition(ctx, id, domain.StatusProcessing, "payment confirmed")
+}
+
+func (s *PaymentService) Capture(ctx context.Context, id string) (*domain.Payment, error) {
+	return s.transition(ctx, id, domain.StatusSucceeded, "payment captured")
+}
+
+func (s *PaymentService) Cancel(ctx context.Context, id string) (*domain.Payment, error) {
+	return s.transition(ctx, id, domain.StatusCancelled, "payment cancelled")
+}
+
+func (s *PaymentService) Refund(ctx context.Context, id string) (*domain.Payment, error) {
+	return s.transition(ctx, id, domain.StatusRefunded, "payment refunded")
 }

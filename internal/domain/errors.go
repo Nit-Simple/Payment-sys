@@ -10,4 +10,5 @@ var (
 	ErrCardExpired             = errors.New("card expired")
 	ErrInvalidUPIID            = errors.New("invalid upi id")
 	ErrValidation              = errors.New("validation failed")
+	ErrIdempotencyKeyExists    = errors.New("idempotency key already exists")
 )
