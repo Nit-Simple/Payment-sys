@@ -147,7 +147,7 @@ func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := toCreatePaymentResponse(payment)
+	resp := domain.PaymentToResponse(payment)
 
 	if err := s.idempotencyService.Complete(r.Context(), idempKey, payment.ID, http.StatusCreated, resp); err != nil {
 		s.logger.ErrorContext(r.Context(), "failed to complete idempotency key", "err", err)
@@ -156,24 +156,6 @@ func (s *Server) handleCreatePayment(w http.ResponseWriter, r *http.Request) {
 	s.respond(w, r, http.StatusCreated, resp)
 }
 
-func toCreatePaymentResponse(p *domain.Payment) CreatePaymentResponse {
-	return CreatePaymentResponse{
-		ID:                p.ID,
-		CustomerID:        p.CustomerID,
-		Amount:            p.Amount,
-		Currency:          p.Currency,
-		Status:            string(p.Status),
-		Method:            string(p.Method),
-		CardLastFour:      p.CardLastFour,
-		CardBrand:         p.CardBrand,
-		UPIID:             p.UPIID,
-		IFSCCode:          p.IFSCCode,
-		AccountHolderName: p.AccountHolderName,
-		Email:             p.Email,
-		Metadata:          p.Metadata,
-		CreatedAt:         p.CreatedAt,
-	}
-}
 func (s *Server) handleListPayments(w http.ResponseWriter, r *http.Request) {
 	customerID := r.URL.Query().Get("customer_id")
 	if customerID == "" {
@@ -211,10 +193,10 @@ func (s *Server) handleListPayments(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func toListPaymentResponses(payments []*domain.Payment) []CreatePaymentResponse {
-	result := make([]CreatePaymentResponse, len(payments))
+func toListPaymentResponses(payments []*domain.Payment) []domain.PaymentResponse {
+	result := make([]domain.PaymentResponse, len(payments))
 	for i, p := range payments {
-		result[i] = toCreatePaymentResponse(p)
+		result[i] = domain.PaymentToResponse(p)
 	}
 	return result
 }
@@ -231,7 +213,7 @@ func (s *Server) handleGetPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+	s.respond(w, r, http.StatusOK, domain.PaymentToResponse(payment))
 }
 func (s *Server) handleConfirmPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -246,7 +228,7 @@ func (s *Server) handleConfirmPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+	s.respond(w, r, http.StatusOK, domain.PaymentToResponse(payment))
 }
 func (s *Server) handleCapturePayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -261,7 +243,7 @@ func (s *Server) handleCapturePayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+	s.respond(w, r, http.StatusOK, domain.PaymentToResponse(payment))
 }
 func (s *Server) handleCancelPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -276,7 +258,7 @@ func (s *Server) handleCancelPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+	s.respond(w, r, http.StatusOK, domain.PaymentToResponse(payment))
 }
 func (s *Server) handleRefundPayment(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
@@ -291,5 +273,5 @@ func (s *Server) handleRefundPayment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.respond(w, r, http.StatusOK, toCreatePaymentResponse(payment))
+	s.respond(w, r, http.StatusOK, domain.PaymentToResponse(payment))
 }

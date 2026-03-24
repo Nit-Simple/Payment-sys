@@ -113,4 +113,27 @@ var (
 			Help: "Total number of new requests passing through idempotency layer",
 		},
 	)
+	// Recovery metrics
+	RecoveryKeysResolved = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "recovery_keys_resolved_total",
+			Help: "Total number of stuck idempotency keys resolved on startup",
+		},
+		[]string{"result"}, // completed, failed
+	)
+
+	RecoverySweepDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "recovery_sweep_duration_seconds",
+			Help:    "Time taken to complete the startup recovery sweep",
+			Buckets: []float64{.01, .05, .1, .5, 1, 2.5, 5, 10},
+		},
+	)
+
+	RecoveryErrors = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "recovery_errors_total",
+			Help: "Total number of errors during startup recovery sweep",
+		},
+	)
 )
